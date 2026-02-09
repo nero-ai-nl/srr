@@ -99,7 +99,8 @@ export default function App() {
             setSaveComplete(true);
         } catch (err) {
             console.error("Save error:", err);
-            setSaveError("Fout: Geen verbinding met database route");
+            const message = err instanceof Error ? err.message : 'Kon sessie niet opslaan';
+            setSaveError(`Fout: ${message}`);
         } finally {
             setIsSaving(false);
         }

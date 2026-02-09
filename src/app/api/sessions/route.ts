@@ -93,7 +93,40 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, session }, { status: 201 });
     } catch (error) {
-        console.error("API Error:", error);
-        return NextResponse.json({ error: "Database error" }, { status: 500 });
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        const lowered = message.toLowerCase();
+        console.error('API Error:', error);
+
+        if (lowered.includes('database_url is not set')) {
+            return NextResponse.json(
+                { error: 'Server config error: DATABASE_URL ontbreekt.', code: 'MISSING_DATABASE_URL' },
+                { status: 500 },
+            );
+        }
+
+        if (
+            lowered.includes('can\'t reach database server') ||
+            lowered.includes('enotfound') ||
+            lowered.includes('econnrefused') ||
+            lowered.includes('timeout')
+        ) {
+            return NextResponse.json(
+                { error: 'Database connection failed. Controleer host/poort/ssl en Neon status.', code: 'DB_CONNECT_FAILED' },
+                { status: 500 },
+            );
+        }
+
+        if (
+            lowered.includes('password authentication failed') ||
+            lowered.includes('sasl') ||
+            lowered.includes('channel binding')
+        ) {
+            return NextResponse.json(
+                { error: 'Database authentication failed. Controleer credentials en query params.', code: 'DB_AUTH_FAILED' },
+                { status: 500 },
+            );
+        }
+
+        return NextResponse.json({ error: 'Database error', code: 'DB_RUNTIME_ERROR' }, { status: 500 });
     }
 }
