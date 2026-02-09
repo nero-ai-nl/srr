@@ -33,7 +33,13 @@ type UserStats = {
     averageDuration: number;
     bestRetention: number;
     lastSessionAt: string | null;
-    recentSessions: { id: string; createdAt: string; totalDuration: number }[];
+    recentSessions: {
+        id: string;
+        createdAt: string;
+        totalDuration: number;
+        totalRetention: number;
+        records: { chakra: string; seconds: number }[];
+    }[];
 };
 
 interface AppState {
@@ -57,7 +63,7 @@ const CHAKRAS = [
         color: 'bg-red-500',
         audio: '/audio/Breathing 1.m4a',
         meditation: '/audio/Meditation 1.m4a',
-        background: '/images/chakras/chakra-1.jpg',
+        background: '/images/chakras/chakra-1.png',
     },
     {
         id: 2,
@@ -65,7 +71,7 @@ const CHAKRAS = [
         color: 'bg-orange-500',
         audio: '/audio/Breathing 2.m4a',
         meditation: '/audio/Meditation 2.m4a',
-        background: '/images/chakras/chakra-2.jpg',
+        background: '/images/chakras/chakra-2.png',
     },
     {
         id: 3,
@@ -73,7 +79,7 @@ const CHAKRAS = [
         color: 'bg-yellow-500',
         audio: '/audio/Breathing 3.m4a',
         meditation: '/audio/Meditation 3.m4a',
-        background: '/images/chakras/chakra-3.jpg',
+        background: '/images/chakras/chakra-3.png',
     },
     {
         id: 4,
@@ -81,7 +87,7 @@ const CHAKRAS = [
         color: 'bg-green-500',
         audio: '/audio/Breathing 4.m4a',
         meditation: '/audio/Meditation 4.m4a',
-        background: '/images/chakras/chakra-4.jpg',
+        background: '/images/chakras/chakra-4.png',
     },
     {
         id: 5,
@@ -89,7 +95,7 @@ const CHAKRAS = [
         color: 'bg-blue-500',
         audio: '/audio/Breathing 5.m4a',
         meditation: '/audio/Meditation 5.m4a',
-        background: '/images/chakras/chakra-5.jpg',
+        background: '/images/chakras/chakra-5.png',
     },
     {
         id: 6,
@@ -97,7 +103,7 @@ const CHAKRAS = [
         color: 'bg-indigo-500',
         audio: '/audio/Breathing 6.m4a',
         meditation: '/audio/Meditation 6.m4a',
-        background: '/images/chakras/chakra-6.jpg',
+        background: '/images/chakras/chakra-6.png',
     },
     {
         id: 7,
@@ -105,7 +111,7 @@ const CHAKRAS = [
         color: 'bg-purple-500',
         audio: '/audio/Breathing 7.m4a',
         meditation: '/audio/Meditation 7.m4a',
-        background: '/images/chakras/chakra-7.jpg',
+        background: '/images/chakras/chakra-7.png',
     },
 ];
 
@@ -161,6 +167,22 @@ function formatDuration(seconds: number): string {
     return `${minutes}m ${rest}s`;
 }
 
+function formatSessionLabel(isoDate: string): string {
+    return new Date(isoDate).toLocaleDateString('nl-NL', {
+        day: '2-digit',
+        month: '2-digit',
+    });
+}
+
+function getRetentionByChakra(records: { chakra: string; seconds: number }[], chakraName: string): number {
+    const exactMatch = records.find((record) => record.chakra === chakraName);
+    if (exactMatch) return exactMatch.seconds;
+
+    const normalizedName = chakraName.toLowerCase();
+    const fallbackMatch = records.find((record) => record.chakra.toLowerCase().includes(normalizedName.split(' ')[0]));
+    return fallbackMatch?.seconds ?? 0;
+}
+
 export default function App() {
     const [state, dispatch] = useReducer(appReducer, initialState);
     const { phase, currentChakraIdx, totalDuration } = state;
@@ -184,6 +206,7 @@ export default function App() {
 
     const [isInstructionPlaying, setIsInstructionPlaying] = useState(false);
     const [instructionError, setInstructionError] = useState<string | null>(null);
+    const [chakraBackgroundAvailability, setChakraBackgroundAvailability] = useState<Record<string, boolean>>({});
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const instructionAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -459,6 +482,27 @@ export default function App() {
         }
     }, [phase, stopInstructionAudio]);
 
+    useEffect(() => {
+        let cancelled = false;
+
+        CHAKRAS.forEach((chakra) => {
+            const image = new Image();
+            image.onload = () => {
+                if (cancelled) return;
+                setChakraBackgroundAvailability((prev) => ({ ...prev, [chakra.background]: true }));
+            };
+            image.onerror = () => {
+                if (cancelled) return;
+                setChakraBackgroundAvailability((prev) => ({ ...prev, [chakra.background]: false }));
+            };
+            image.src = chakra.background;
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     if (phase === 'DISCLAIMER') {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-slate-900 text-white font-sans">
@@ -473,7 +517,7 @@ export default function App() {
                         onClick={toggleInstructionAudio}
                         className="w-full px-6 py-3 bg-slate-800 border border-white/20 text-white rounded-full font-black uppercase tracking-widest text-xs hover:bg-slate-700 transition-colors active:scale-95 flex items-center justify-center gap-2"
                     >
-                        {isInstructionPlaying ? <PauseCircle size={16} /> : <PlayCircle size={16} />} 
+                        {isInstructionPlaying ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
                         {isInstructionPlaying ? 'Stop Instructies' : 'Beluister Instructies'}
                     </button>
                     <button
@@ -559,6 +603,7 @@ export default function App() {
     }
 
     if (phase === 'DASHBOARD' && currentUser?.type === 'USER') {
+        const comparisonSessions = (userStats?.recentSessions ?? []).slice(0, 4);
         return (
             <div className="min-h-screen p-6 bg-slate-950 text-white font-sans">
                 <div className="max-w-3xl mx-auto space-y-6">
@@ -614,11 +659,54 @@ export default function App() {
                                 {userStats?.recentSessions.map((session) => (
                                     <div key={session.id} className="flex justify-between text-sm border-b border-white/5 py-2">
                                         <span>{new Date(session.createdAt).toLocaleString()}</span>
-                                        <span className="font-mono">{formatDuration(session.totalDuration)}</span>
+                                        <span className="font-mono">{formatDuration(session.totalDuration)} | R: {session.totalRetention}s</span>
                                     </div>
                                 ))}
                             </div>
                         ) : null}
+                    </div>
+
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                        <p className="text-xs font-black uppercase tracking-widest mb-3">Progressie per chakra (sessievergelijking)</p>
+                        {(comparisonSessions.length === 0 || isStatsLoading || statsError) ? (
+                            <p className="text-sm text-slate-400">Nog niet genoeg data voor progressievergelijking.</p>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="min-w-[720px] w-full text-xs">
+                                    <thead>
+                                        <tr className="border-b border-white/10 text-slate-300">
+                                            <th className="text-left py-2 pr-3">Chakra</th>
+                                            {comparisonSessions.map((session, index) => (
+                                                <th key={session.id} className="text-center py-2 px-2">
+                                                    Sessie {comparisonSessions.length - index}
+                                                    <div className="text-[10px] font-normal text-slate-500">{formatSessionLabel(session.createdAt)}</div>
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {CHAKRAS.map((chakraItem) => (
+                                            <tr key={chakraItem.id} className="border-b border-white/5">
+                                                <td className="py-2 pr-3 text-slate-300">{chakraItem.name}</td>
+                                                {comparisonSessions.map((session) => (
+                                                    <td key={`${session.id}-${chakraItem.id}`} className="py-2 px-2 text-center font-mono">
+                                                        {getRetentionByChakra(session.records, chakraItem.name)}s
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                        <tr className="border-t border-white/15">
+                                            <td className="py-2 pr-3 font-black text-white uppercase tracking-widest">Totaal retentie</td>
+                                            {comparisonSessions.map((session) => (
+                                                <td key={`${session.id}-total`} className="py-2 px-2 text-center font-black text-cyan-300">
+                                                    {session.totalRetention}s
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
 
                     <button
@@ -640,8 +728,10 @@ export default function App() {
                 className="flex flex-col items-center justify-center min-h-screen text-white cursor-pointer relative overflow-hidden font-sans"
                 style={{
                     backgroundImage: `linear-gradient(rgba(2, 6, 23, 0.70), rgba(0, 0, 0, 0.85)), url('${chakra.background}')`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
+                    backgroundSize: 'contain',
+                    backgroundPosition: 'center bottom',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundColor: '#020617',
                 }}
             >
                 <div className={`absolute inset-0 opacity-20 ${chakra.color} blur-[120px] animate-pulse transition-colors duration-1000`} />
@@ -660,6 +750,7 @@ export default function App() {
     }
 
     const chakra = CHAKRAS[currentChakraIdx];
+    const isChakraBackgroundMissing = chakraBackgroundAvailability[chakra.background] === false;
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-slate-950 text-white relative overflow-hidden font-sans">
@@ -740,19 +831,23 @@ export default function App() {
                         </div>
 
                         <div
-                            className="aspect-video w-full rounded-[2.5rem] flex flex-col items-center justify-center gap-4 border border-white/10 relative shadow-inner overflow-hidden"
+                            className="aspect-[4/5] sm:aspect-video w-full rounded-[2.5rem] flex flex-col items-center justify-center gap-4 border border-white/10 relative shadow-inner overflow-hidden"
                             style={{
                                 backgroundImage: `linear-gradient(rgba(2, 6, 23, 0.35), rgba(2, 6, 23, 0.85)), url('${chakra.background}')`,
-                                backgroundSize: 'cover',
-                                backgroundPosition: 'center',
+                                backgroundSize: 'contain',
+                                backgroundPosition: 'center bottom',
+                                backgroundRepeat: 'no-repeat',
+                                backgroundColor: '#0f172a',
                             }}
                         >
                             <div className={`absolute inset-0 opacity-20 ${chakra.color} blur-3xl transition-colors duration-1000`} />
                             <Volume2 className="text-white/40 animate-pulse z-10" size={48} />
                             <p className="text-[9px] uppercase tracking-[0.35em] font-black opacity-60 z-10">Audio speelt af...</p>
-                            <p className="text-[9px] uppercase tracking-[0.25em] font-black opacity-80 z-10 px-4 py-2 rounded-full bg-black/45 border border-white/10">
-                                Upload chakra-afbeelding naar {chakra.background}
-                            </p>
+                            {isChakraBackgroundMissing ? (
+                                <p className="text-[9px] uppercase tracking-[0.25em] font-black opacity-80 z-10 px-4 py-2 rounded-full bg-black/45 border border-white/10">
+                                    Upload chakra-afbeelding naar {chakra.background}
+                                </p>
+                            ) : null}
                         </div>
 
                         <button
@@ -763,8 +858,8 @@ export default function App() {
                                 {phase === 'BREATHING'
                                     ? 'Naar Retentie'
                                     : currentChakraIdx < CHAKRAS.length - 1
-                                      ? 'Volgende Chakra'
-                                      : 'Sessie Voltooien'}
+                                        ? 'Volgende Chakra'
+                                        : 'Sessie Voltooien'}
                             </span>
                             <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
                         </button>

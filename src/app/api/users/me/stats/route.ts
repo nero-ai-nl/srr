@@ -50,6 +50,13 @@ export async function GET(request: Request) {
           id: session.id,
           createdAt: session.createdAt,
           totalDuration: session.totalDuration ?? 0,
+          totalRetention: session.records.reduce((sum, record) => sum + record.seconds, 0),
+          records: session.records
+            .map((record) => ({
+              chakra: record.chakra,
+              seconds: record.seconds,
+            }))
+            .sort((a, b) => a.chakra.localeCompare(b.chakra)),
         })),
       },
     });
