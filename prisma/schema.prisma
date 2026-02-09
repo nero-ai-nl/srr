@@ -4,19 +4,27 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // In Prisma v7 met prisma.config.ts laten we de 'url' hier weg 
-  // of we gebruiken een placeholder als de config het nog niet volledig overneemt.
-  // Echter, de foutmelding P1012 geeft aan dat de 'url' property zelf 
-  // in conflict is met je prisma.config.ts instellingen.
+}
+
+model User {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  username     String    @unique
+  passwordHash String
+  displayName  String?
+  sessions     Session[]
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  userType  String   // 'GUEST' of 'USER'
-  userId    String?  // Optioneel voor later
-    totalDuration Int?     // De totale tijd in seconden
-  records   RetentionRecord[]
+  id            String            @id @default(cuid())
+  createdAt     DateTime          @default(now())
+  userType      String // 'GUEST' of 'USER'
+  userId        String?
+  user          User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  totalDuration Int?
+  records       RetentionRecord[]
+
+  @@index([userId])
 }
 
 model RetentionRecord {
@@ -26,4 +34,3 @@ model RetentionRecord {
   sessionId String
   session   Session  @relation(fields: [sessionId], references: [id])
 }
-

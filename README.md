@@ -51,10 +51,30 @@ Open daarna `http://localhost:3000`.
 ## 6. MVP-flow (huidige implementatie)
 
 1. Disclaimer accepteren.
-2. In auth-scherm kiezen voor "Start als Gast".
-3. Per chakra: breathing -> retention -> meditation.
-4. Na chakra 7 naar summary.
-5. Bij summary wordt de sessie opgeslagen via `POST /api/sessions`.
+2. Optioneel: knop "Beluister Instructies" speelt `public/audio/instructions.m4a`.
+3. In auth-scherm: inloggen met testaccount of starten als gast.
+4. Ingelogde gebruiker krijgt een persoonlijk dashboard met statistieken.
+5. Per chakra: breathing -> retention -> meditation.
+6. Na chakra 7 naar summary.
+7. Bij summary wordt de sessie opgeslagen via `POST /api/sessions`.
+
+## 6.1 Test login
+
+- Gebruikersnaam: `testuser`
+- Wachtwoord: `sadhana123`
+- Deze testuser wordt automatisch aangemaakt in migratie `20260209193000_add_user_auth_and_session_relation`.
+
+## 6.2 Chakra-afbeeldingen
+
+Upload per chakra een afbeelding naar:
+
+- `public/images/chakras/chakra-1.jpg`
+- `public/images/chakras/chakra-2.jpg`
+- `public/images/chakras/chakra-3.jpg`
+- `public/images/chakras/chakra-4.jpg`
+- `public/images/chakras/chakra-5.jpg`
+- `public/images/chakras/chakra-6.jpg`
+- `public/images/chakras/chakra-7.jpg`
 
 ## 7. Kwaliteitschecks
 

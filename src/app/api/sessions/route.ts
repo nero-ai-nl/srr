@@ -11,6 +11,7 @@ type RecordInput = {
 type SessionInput = {
     totalDuration: number;
     userType: 'GUEST' | 'USER';
+    userId?: string | null;
     records: RecordInput[];
 };
 
@@ -45,6 +46,10 @@ function parseSessionInput(value: unknown): { data?: SessionInput; error?: strin
         return { error: 'userType must be GUEST or USER.' };
     }
 
+    if (candidate.userType === 'USER' && (!candidate.userId || typeof candidate.userId !== 'string')) {
+        return { error: 'userId is required when userType is USER.' };
+    }
+
     if (!Array.isArray(candidate.records) || candidate.records.length === 0) {
         return { error: 'records must be a non-empty array.' };
     }
@@ -73,12 +78,13 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: parsed.error }, { status: 400 });
         }
 
-        const { totalDuration, userType, records } = parsed.data;
+        const { totalDuration, userType, userId, records } = parsed.data;
 
         const session = await prisma.session.create({
             data: {
                 totalDuration,
                 userType,
+                userId: userType === 'USER' ? userId : null,
                 records: {
                     create: records.map((record) => ({
                         chakra: record.chakra,
