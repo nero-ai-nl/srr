@@ -42,6 +42,18 @@ type UserStats = {
     }[];
 };
 
+type WakeLockSentinelLike = {
+    released?: boolean;
+    release: () => Promise<void>;
+    addEventListener?: (type: 'release', listener: () => void) => void;
+};
+
+type NavigatorWithWakeLock = Navigator & {
+    wakeLock?: {
+        request: (type: 'screen') => Promise<WakeLockSentinelLike>;
+    };
+};
+
 interface AppState {
     phase: Phase;
     currentChakraIdx: number;
@@ -207,10 +219,18 @@ export default function App() {
     const [isInstructionPlaying, setIsInstructionPlaying] = useState(false);
     const [instructionError, setInstructionError] = useState<string | null>(null);
     const [chakraBackgroundAvailability, setChakraBackgroundAvailability] = useState<Record<string, boolean>>({});
+    const [retentionFocusAudioEnabled, setRetentionFocusAudioEnabled] = useState(false);
+    const [retentionFocusAudioError, setRetentionFocusAudioError] = useState<string | null>(null);
+    const [wakeLockSupported, setWakeLockSupported] = useState<boolean | null>(null);
+    const [wakeLockError, setWakeLockError] = useState<string | null>(null);
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const instructionAudioRef = useRef<HTMLAudioElement | null>(null);
+    const retentionFocusAudioRef = useRef<HTMLAudioElement | null>(null);
+    const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
     const isTransitioningRef = useRef(false);
+
+    const isSessionActivePhase = phase === 'BREATHING' || phase === 'RETENTION' || phase === 'MEDITATION';
 
     const stopInstructionAudio = useCallback(() => {
         if (instructionAudioRef.current) {
@@ -220,6 +240,75 @@ export default function App() {
             instructionAudioRef.current = null;
         }
         setIsInstructionPlaying(false);
+    }, []);
+
+    const stopRetentionFocusAudio = useCallback((resetPosition = true) => {
+        if (!retentionFocusAudioRef.current) return;
+        retentionFocusAudioRef.current.pause();
+        if (resetPosition) {
+            retentionFocusAudioRef.current.currentTime = 0;
+        }
+    }, []);
+
+    const playRetentionFocusAudio = useCallback(async (showAutoplayError: boolean) => {
+        setRetentionFocusAudioError(null);
+
+        if (!retentionFocusAudioRef.current) {
+            const focusAudio = new Audio('/audio/retention-focus.m4a');
+            focusAudio.loop = true;
+            focusAudio.volume = 0.35;
+            focusAudio.onerror = () => {
+                setRetentionFocusAudioError('Kon /audio/retention-focus.m4a niet afspelen.');
+            };
+            retentionFocusAudioRef.current = focusAudio;
+        }
+
+        try {
+            await retentionFocusAudioRef.current.play();
+        } catch {
+            if (showAutoplayError) {
+                setRetentionFocusAudioError('Focus-audio kon niet starten. Tik nogmaals op de knop.');
+            }
+        }
+    }, []);
+
+    const releaseWakeLock = useCallback(async () => {
+        const activeLock = wakeLockRef.current;
+        if (!activeLock) return;
+
+        try {
+            await activeLock.release();
+        } catch {
+            // no-op
+        } finally {
+            wakeLockRef.current = null;
+        }
+    }, []);
+
+    const requestWakeLock = useCallback(async () => {
+        if (typeof window === 'undefined') return;
+
+        const nav = navigator as NavigatorWithWakeLock;
+        if (!nav.wakeLock?.request) {
+            setWakeLockSupported(false);
+            return;
+        }
+
+        if (document.visibilityState !== 'visible') return;
+        if (wakeLockRef.current && !wakeLockRef.current.released) return;
+
+        try {
+            const lock = await nav.wakeLock.request('screen');
+            wakeLockRef.current = lock;
+            setWakeLockSupported(true);
+            setWakeLockError(null);
+            lock.addEventListener?.('release', () => {
+                wakeLockRef.current = null;
+            });
+        } catch {
+            setWakeLockSupported(true);
+            setWakeLockError('Kon scherm niet wakker houden. Zet Auto-Lock tijdelijk uit als fallback.');
+        }
     }, []);
 
     const toggleInstructionAudio = useCallback(() => {
@@ -461,6 +550,15 @@ export default function App() {
     }, [phase, currentChakraIdx, handleNext]);
 
     useEffect(() => {
+        if (phase !== 'RETENTION' || !retentionFocusAudioEnabled) {
+            stopRetentionFocusAudio();
+            return;
+        }
+
+        void playRetentionFocusAudio(false);
+    }, [phase, retentionFocusAudioEnabled, playRetentionFocusAudio, stopRetentionFocusAudio]);
+
+    useEffect(() => {
         let interval: NodeJS.Timeout;
         if (phase === 'RETENTION' && isTimerRunning) {
             interval = setInterval(() => setRetentionTime((prev) => prev + 1), 1000);
@@ -474,6 +572,28 @@ export default function App() {
         if (isSaving || saveComplete || saveError) return;
         void handleSaveSession(history, totalDuration);
     }, [phase, history, totalDuration, isSaving, saveComplete, saveError, handleSaveSession]);
+
+    useEffect(() => {
+        if (isSessionActivePhase) {
+            void requestWakeLock();
+        } else {
+            void releaseWakeLock();
+            setWakeLockError(null);
+        }
+    }, [isSessionActivePhase, requestWakeLock, releaseWakeLock]);
+
+    useEffect(() => {
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && isSessionActivePhase) {
+                void requestWakeLock();
+            }
+        };
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, [isSessionActivePhase, requestWakeLock]);
 
     useEffect(() => {
         if (phase !== 'DISCLAIMER') {
@@ -502,6 +622,16 @@ export default function App() {
             cancelled = true;
         };
     }, []);
+
+    useEffect(() => {
+        return () => {
+            if (retentionFocusAudioRef.current) {
+                stopRetentionFocusAudio(false);
+                retentionFocusAudioRef.current = null;
+            }
+            void releaseWakeLock();
+        };
+    }, [releaseWakeLock, stopRetentionFocusAudio]);
 
     if (phase === 'DISCLAIMER') {
         return (
@@ -744,6 +874,42 @@ export default function App() {
                         <div className="w-2 h-2 bg-white rounded-full animate-ping" />
                         <p className="text-slate-300 tracking-[0.3em] uppercase text-[10px] font-black mt-6">Tik om te voltooien</p>
                     </div>
+                </div>
+
+                <div
+                    className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(92vw,420px)] space-y-2"
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (retentionFocusAudioEnabled) {
+                                setRetentionFocusAudioEnabled(false);
+                                stopRetentionFocusAudio();
+                                setRetentionFocusAudioError(null);
+                                return;
+                            }
+
+                            setRetentionFocusAudioEnabled(true);
+                            void playRetentionFocusAudio(true);
+                        }}
+                        className="w-full py-2.5 rounded-xl bg-black/45 border border-white/20 text-[10px] font-black uppercase tracking-[0.2em] text-slate-100 hover:bg-black/60 transition-colors"
+                    >
+                        {retentionFocusAudioEnabled ? 'Focus-audio uitzetten' : 'Focus-audio aanzetten'}
+                    </button>
+                    {retentionFocusAudioError ? (
+                        <p className="text-[10px] text-red-300 text-center bg-black/45 border border-red-400/40 rounded-lg px-3 py-2">
+                            {retentionFocusAudioError}
+                        </p>
+                    ) : (
+                        <p className="text-[10px] text-slate-300 text-center bg-black/45 border border-white/10 rounded-lg px-3 py-2">
+                            {wakeLockSupported === false
+                                ? 'Wake Lock niet ondersteund in deze browser. Gebruik Safari of zet Auto-Lock tijdelijk uit.'
+                                : wakeLockError
+                                    ? wakeLockError
+                                    : 'Scherm wakker houden actief tijdens sessie.'}
+                        </p>
+                    )}
                 </div>
             </div>
         );
