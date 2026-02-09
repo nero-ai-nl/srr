@@ -219,8 +219,6 @@ export default function App() {
     const [isInstructionPlaying, setIsInstructionPlaying] = useState(false);
     const [instructionError, setInstructionError] = useState<string | null>(null);
     const [chakraBackgroundAvailability, setChakraBackgroundAvailability] = useState<Record<string, boolean>>({});
-    const [retentionFocusAudioEnabled, setRetentionFocusAudioEnabled] = useState(false);
-    const [retentionFocusAudioError, setRetentionFocusAudioError] = useState<string | null>(null);
     const [wakeLockSupported, setWakeLockSupported] = useState<boolean | null>(null);
     const [wakeLockError, setWakeLockError] = useState<string | null>(null);
 
@@ -242,34 +240,11 @@ export default function App() {
         setIsInstructionPlaying(false);
     }, []);
 
-    const stopRetentionFocusAudio = useCallback((resetPosition = true) => {
+    const stopRetentionFocusAudio = useCallback(() => {
         if (!retentionFocusAudioRef.current) return;
         retentionFocusAudioRef.current.pause();
-        if (resetPosition) {
-            retentionFocusAudioRef.current.currentTime = 0;
-        }
-    }, []);
-
-    const playRetentionFocusAudio = useCallback(async (showAutoplayError: boolean) => {
-        setRetentionFocusAudioError(null);
-
-        if (!retentionFocusAudioRef.current) {
-            const focusAudio = new Audio('/audio/retention-focus.m4a');
-            focusAudio.loop = true;
-            focusAudio.volume = 0.35;
-            focusAudio.onerror = () => {
-                setRetentionFocusAudioError('Kon /audio/retention-focus.m4a niet afspelen.');
-            };
-            retentionFocusAudioRef.current = focusAudio;
-        }
-
-        try {
-            await retentionFocusAudioRef.current.play();
-        } catch {
-            if (showAutoplayError) {
-                setRetentionFocusAudioError('Focus-audio kon niet starten. Tik nogmaals op de knop.');
-            }
-        }
+        retentionFocusAudioRef.current.currentTime = 0;
+        retentionFocusAudioRef.current = null;
     }, []);
 
     const releaseWakeLock = useCallback(async () => {
@@ -550,21 +525,36 @@ export default function App() {
     }, [phase, currentChakraIdx, handleNext]);
 
     useEffect(() => {
-        if (phase !== 'RETENTION' || !retentionFocusAudioEnabled) {
-            stopRetentionFocusAudio();
-            return;
-        }
-
-        void playRetentionFocusAudio(false);
-    }, [phase, retentionFocusAudioEnabled, playRetentionFocusAudio, stopRetentionFocusAudio]);
-
-    useEffect(() => {
         let interval: NodeJS.Timeout;
         if (phase === 'RETENTION' && isTimerRunning) {
             interval = setInterval(() => setRetentionTime((prev) => prev + 1), 1000);
         }
         return () => clearInterval(interval);
     }, [phase, isTimerRunning]);
+
+    useEffect(() => {
+        if (phase !== 'RETENTION') {
+            stopRetentionFocusAudio();
+            return;
+        }
+
+        const focusAudio = new Audio('/audio/retention-focus.m4a');
+        focusAudio.loop = true;
+        focusAudio.volume = 0.35;
+        retentionFocusAudioRef.current = focusAudio;
+        void focusAudio.play().catch(() => {
+            // no-op for autoplay restrictions
+        });
+
+        return () => {
+            if (retentionFocusAudioRef.current === focusAudio) {
+                stopRetentionFocusAudio();
+            } else {
+                focusAudio.pause();
+                focusAudio.currentTime = 0;
+            }
+        };
+    }, [phase, stopRetentionFocusAudio]);
 
     useEffect(() => {
         if (phase !== 'SUMMARY') return;
@@ -625,10 +615,7 @@ export default function App() {
 
     useEffect(() => {
         return () => {
-            if (retentionFocusAudioRef.current) {
-                stopRetentionFocusAudio(false);
-                retentionFocusAudioRef.current = null;
-            }
+            stopRetentionFocusAudio();
             void releaseWakeLock();
         };
     }, [releaseWakeLock, stopRetentionFocusAudio]);
@@ -876,40 +863,14 @@ export default function App() {
                     </div>
                 </div>
 
-                <div
-                    className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(92vw,420px)] space-y-2"
-                    onClick={(event) => event.stopPropagation()}
-                >
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (retentionFocusAudioEnabled) {
-                                setRetentionFocusAudioEnabled(false);
-                                stopRetentionFocusAudio();
-                                setRetentionFocusAudioError(null);
-                                return;
-                            }
-
-                            setRetentionFocusAudioEnabled(true);
-                            void playRetentionFocusAudio(true);
-                        }}
-                        className="w-full py-2.5 rounded-xl bg-black/45 border border-white/20 text-[10px] font-black uppercase tracking-[0.2em] text-slate-100 hover:bg-black/60 transition-colors"
-                    >
-                        {retentionFocusAudioEnabled ? 'Focus-audio uitzetten' : 'Focus-audio aanzetten'}
-                    </button>
-                    {retentionFocusAudioError ? (
-                        <p className="text-[10px] text-red-300 text-center bg-black/45 border border-red-400/40 rounded-lg px-3 py-2">
-                            {retentionFocusAudioError}
-                        </p>
-                    ) : (
-                        <p className="text-[10px] text-slate-300 text-center bg-black/45 border border-white/10 rounded-lg px-3 py-2">
-                            {wakeLockSupported === false
-                                ? 'Wake Lock niet ondersteund in deze browser. Gebruik Safari of zet Auto-Lock tijdelijk uit.'
-                                : wakeLockError
-                                    ? wakeLockError
-                                    : 'Scherm wakker houden actief tijdens sessie.'}
-                        </p>
-                    )}
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[min(92vw,420px)]" onClick={(event) => event.stopPropagation()}>
+                    <p className="text-[10px] text-slate-300 text-center bg-black/45 border border-white/10 rounded-lg px-3 py-2">
+                        {wakeLockSupported === false
+                            ? 'Wake Lock niet ondersteund in deze browser. Gebruik Safari of zet Auto-Lock tijdelijk uit.'
+                            : wakeLockError
+                                ? wakeLockError
+                                : 'Scherm wakker houden actief tijdens sessie.'}
+                    </p>
                 </div>
             </div>
         );
@@ -919,7 +880,7 @@ export default function App() {
     const isChakraBackgroundMissing = chakraBackgroundAvailability[chakra.background] === false;
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-slate-950 text-white relative overflow-hidden font-sans">
+        <div className="flex flex-col items-center justify-center min-h-[100dvh] p-4 sm:p-6 bg-slate-950 text-white relative overflow-hidden font-sans">
             {phase !== 'SUMMARY' ? (
                 <div className="fixed top-0 left-0 w-full h-1 bg-white/5 z-50">
                     <div
@@ -985,19 +946,19 @@ export default function App() {
                         </button>
                     </div>
                 ) : (
-                    <div className="space-y-10">
-                        <div className="space-y-4">
-                            <div className={`w-20 h-20 mx-auto rounded-full border border-white/10 ${chakra.color} flex items-center justify-center bg-black/40 shadow-2xl transition-colors duration-1000`}>
-                                <span className="text-3xl font-black italic">{currentChakraIdx + 1}</span>
+                    <div className="space-y-5 sm:space-y-8">
+                        <div className="space-y-3 sm:space-y-4">
+                            <div className={`w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-full border border-white/10 ${chakra.color} flex items-center justify-center bg-black/40 shadow-2xl transition-colors duration-1000`}>
+                                <span className="text-2xl sm:text-3xl font-black italic">{currentChakraIdx + 1}</span>
                             </div>
-                            <h2 className="text-3xl font-black tracking-tighter uppercase italic">
+                            <h2 className="text-[2rem] sm:text-3xl font-black tracking-tighter uppercase italic leading-[0.95]">
                                 {phase === 'BREATHING' ? 'Ademhaling' : 'Herstel en Meditatie'}
                             </h2>
-                            <p className="text-[10px] text-slate-400 tracking-[0.3em] uppercase font-black">{chakra.name}</p>
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 tracking-[0.28em] uppercase font-black">{chakra.name}</p>
                         </div>
 
                         <div
-                            className="aspect-[4/5] sm:aspect-video w-full rounded-[2.5rem] flex flex-col items-center justify-center gap-4 border border-white/10 relative shadow-inner overflow-hidden"
+                            className="h-[42vh] max-h-[420px] min-h-[260px] sm:h-[46vh] w-full rounded-[2rem] sm:rounded-[2.5rem] flex flex-col items-center justify-center gap-4 border border-white/10 relative shadow-inner overflow-hidden"
                             style={{
                                 backgroundImage: `linear-gradient(rgba(2, 6, 23, 0.35), rgba(2, 6, 23, 0.85)), url('${chakra.background}')`,
                                 backgroundSize: 'contain',
@@ -1018,7 +979,7 @@ export default function App() {
 
                         <button
                             onClick={handleNext}
-                            className="w-full py-5 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-4 font-black uppercase tracking-widest text-xs hover:bg-white/10 transition-all group active:scale-95"
+                            className="w-full py-4 sm:py-5 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-4 font-black uppercase tracking-widest text-xs hover:bg-white/10 transition-all group active:scale-95"
                         >
                             <span>
                                 {phase === 'BREATHING'
