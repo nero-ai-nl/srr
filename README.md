@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sadhana Reiki Rounds (MVP)
 
-## Getting Started
+Een Next.js app waarin een volledige 7-chakra sessie wordt doorlopen en het resultaat in Postgres wordt opgeslagen via Prisma.
 
-First, run the development server:
+## 1. Vereisten
+
+- Node.js 20+
+- npm 10+
+- Docker + Docker Compose
+
+## 2. Omgevingsvariabelen
+
+Maak een `.env` bestand op basis van `.env.example`.
+
+```bash
+cp .env.example .env
+```
+
+## 3. Database starten (Docker)
+
+```bash
+docker compose up -d db
+```
+
+Controleer of de container draait:
+
+```bash
+docker compose ps
+```
+
+## 4. Prisma migraties uitvoeren
+
+```bash
+npx prisma migrate deploy
+```
+
+Voor lokale ontwikkelworkflows kan ook:
+
+```bash
+npx prisma migrate dev
+```
+
+## 5. App lokaal starten
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open daarna `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 6. MVP-flow (huidige implementatie)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Disclaimer accepteren.
+2. In auth-scherm kiezen voor "Start als Gast".
+3. Per chakra: breathing -> retention -> meditation.
+4. Na chakra 7 naar summary.
+5. Bij summary wordt de sessie opgeslagen via `POST /api/sessions`.
 
-## Learn More
+## 7. Kwaliteitschecks
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run lint
+npx tsc --noEmit
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 8. Troubleshooting
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Als DB-connectie faalt, controleer `DATABASE_URL` in `.env`.
+- Als migraties falen, controleer of `docker compose ps` de `db` service als "running" toont.
+- `src/app/page1.tsx` is als backup uitgesloten van linting.
 
-## Deploy on Vercel
+## 9. GitHub push (eerste keer)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Als je lokaal al commits hebt maar nog geen remote:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+git remote add origin git@github.com:nero-ai-nl/srr.git
+git push -u origin main
+```
+
+Als je na nieuwe wijzigingen wilt updaten:
+
+```bash
+git add .
+git commit -m "Beschrijf je wijziging"
+git push
+```

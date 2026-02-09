@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // In Prisma v7 met prisma.config.ts laten we de 'url' hier weg 
+  // of we gebruiken een placeholder als de config het nog niet volledig overneemt.
+  // Echter, de foutmelding P1012 geeft aan dat de 'url' property zelf 
+  // in conflict is met je prisma.config.ts instellingen.
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  userType  String   // 'GUEST' of 'USER'
+  userId    String?  // Optioneel voor later
+    totalDuration Int?     // De totale tijd in seconden
+  records   RetentionRecord[]
+}
+
+model RetentionRecord {
+  id        String   @id @default(cuid())
+  chakra    String
+  seconds   Int
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id])
+}
+

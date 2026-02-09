@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: srr_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: srr
+    ports:
+      - "5433:5432" # host:container (gebruik 5432 als die vrij is)
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
