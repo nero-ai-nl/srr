@@ -95,7 +95,18 @@ export async function POST(request: Request) {
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         const lowered = message.toLowerCase();
+        const errorCode =
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            typeof (error as { code?: unknown }).code === 'string'
+                ? (error as { code: string }).code
+                : undefined;
         console.error('API Error:', error);
+
+        const sanitizedMessage = message
+            .replace(/postgresql:\/\/[^@]+@/gi, 'postgresql://***:***@')
+            .replace(/password=[^&\s]+/gi, 'password=***');
 
         if (lowered.includes('database_url is not set')) {
             return NextResponse.json(
@@ -105,6 +116,7 @@ export async function POST(request: Request) {
         }
 
         if (
+            errorCode === 'P1001' ||
             lowered.includes('can\'t reach database server') ||
             lowered.includes('enotfound') ||
             lowered.includes('econnrefused') ||
@@ -117,6 +129,7 @@ export async function POST(request: Request) {
         }
 
         if (
+            errorCode === 'P1000' ||
             lowered.includes('password authentication failed') ||
             lowered.includes('sasl') ||
             lowered.includes('channel binding')
@@ -127,6 +140,24 @@ export async function POST(request: Request) {
             );
         }
 
-        return NextResponse.json({ error: 'Database error', code: 'DB_RUNTIME_ERROR' }, { status: 500 });
+        if (
+            errorCode === 'P2021' ||
+            lowered.includes('does not exist in the current database') ||
+            lowered.includes('relation') && lowered.includes('does not exist')
+        ) {
+            return NextResponse.json(
+                {
+                    error: 'Database schema ontbreekt of is onvolledig. Voer prisma migrate deploy uit tegen de productie-DB.',
+                    code: 'DB_SCHEMA_MISSING',
+                    detail: sanitizedMessage,
+                },
+                { status: 500 },
+            );
+        }
+
+        return NextResponse.json(
+            { error: 'Database error', code: 'DB_RUNTIME_ERROR', detail: sanitizedMessage },
+            { status: 500 },
+        );
     }
 }

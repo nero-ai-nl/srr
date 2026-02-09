@@ -92,8 +92,17 @@ export default function App() {
             });
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || 'Kon sessie niet opslaan');
+                const errorData = await response.json().catch(() => ({} as {
+                    error?: string;
+                    code?: string;
+                    detail?: string;
+                }));
+                const parts = [
+                    errorData.error || 'Kon sessie niet opslaan',
+                    errorData.code ? `[${errorData.code}]` : '',
+                    errorData.detail ? `(${errorData.detail})` : '',
+                ].filter(Boolean);
+                throw new Error(parts.join(' '));
             }
 
             setSaveComplete(true);
