@@ -238,6 +238,7 @@ export default function App() {
     const isTransitioningRef = useRef(false);
 
     const isSessionActivePhase = phase === 'BREATHING' || phase === 'RETENTION' || phase === 'MEDITATION';
+    const shouldKeepScreenAwake = isSessionActivePhase || (phase === 'DISCLAIMER' && isInstructionPlaying);
 
     const stopInstructionAudio = useCallback(() => {
         if (instructionAudioRef.current) {
@@ -305,26 +306,32 @@ export default function App() {
         setInstructionError(null);
         setIsInstructionInfoVisible(true);
         const audio = new Audio('/audio/Instructions.mp3');
+        audio.preload = 'auto';
+        audio.load();
         instructionAudioRef.current = audio;
         setIsInstructionPlaying(true);
 
         audio.onended = () => {
             setIsInstructionPlaying(false);
             instructionAudioRef.current = null;
+            void releaseWakeLock();
         };
 
         audio.onerror = () => {
             setIsInstructionPlaying(false);
             setInstructionError('Kon Instructions.mp3 niet afspelen.');
             instructionAudioRef.current = null;
+            void releaseWakeLock();
         };
 
         audio.play().catch(() => {
             setIsInstructionPlaying(false);
             setInstructionError('Autoplay geblokkeerd of audio niet gevonden.');
             instructionAudioRef.current = null;
+            void releaseWakeLock();
         });
-    }, [isInstructionPlaying, stopInstructionAudio]);
+        void requestWakeLock();
+    }, [isInstructionPlaying, stopInstructionAudio, requestWakeLock, releaseWakeLock]);
 
     useEffect(() => {
         let cancelled = false;
@@ -535,6 +542,13 @@ export default function App() {
             sequence = [CHAKRAS[currentChakraIdx].focusAudio, CHAKRAS[currentChakraIdx].meditationAudio];
         }
 
+        const preloadedPlayers = sequence.map((source) => {
+            const player = new Audio(source);
+            player.preload = 'auto';
+            player.load();
+            return player;
+        });
+
         const playSequenceAt = (index: number) => {
             if (!active) return;
 
@@ -543,7 +557,7 @@ export default function App() {
                 return;
             }
 
-            currentAudio = new Audio(sequence[index]);
+            currentAudio = preloadedPlayers[index] ?? new Audio(sequence[index]);
             audioRef.current = currentAudio;
 
             currentAudio.onended = () => {
@@ -570,6 +584,12 @@ export default function App() {
                 currentAudio.onended = null;
                 currentAudio.onerror = null;
             }
+            preloadedPlayers.forEach((player) => {
+                if (player === currentAudio) return;
+                player.pause();
+                player.onended = null;
+                player.onerror = null;
+            });
             if (audioRef.current === currentAudio) {
                 audioRef.current = null;
             }
@@ -616,17 +636,17 @@ export default function App() {
     }, [phase, history, totalDuration, isSaving, saveComplete, saveError, handleSaveSession]);
 
     useEffect(() => {
-        if (isSessionActivePhase) {
+        if (shouldKeepScreenAwake) {
             void requestWakeLock();
         } else {
             void releaseWakeLock();
             setWakeLockError(null);
         }
-    }, [isSessionActivePhase, requestWakeLock, releaseWakeLock]);
+    }, [shouldKeepScreenAwake, requestWakeLock, releaseWakeLock]);
 
     useEffect(() => {
         const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible' && isSessionActivePhase) {
+            if (document.visibilityState === 'visible' && shouldKeepScreenAwake) {
                 void requestWakeLock();
             }
         };
@@ -635,7 +655,7 @@ export default function App() {
         return () => {
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
-    }, [isSessionActivePhase, requestWakeLock]);
+    }, [shouldKeepScreenAwake, requestWakeLock]);
 
     useEffect(() => {
         if (phase !== 'DISCLAIMER') {
@@ -704,8 +724,10 @@ export default function App() {
                     <div className="mt-5 w-full max-w-sm rounded-2xl border border-white/15 bg-slate-800/60 p-4 text-left">
                         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300 mb-2">Instructies</p>
                         <p className="text-xs leading-relaxed text-slate-200">
-                            Neem een stabiele, comfortabele zithouding aan. Volg de ademhalingsbegeleiding per chakra en forceer de retentie niet.
-                            Luister bij elke overgang naar het focusfragment en ga daarna rustig door met de volgende fase.
+                            Deze app combineert de sadhna Ananda Mandala met de Wim Hof Methode (retentie). Per chakra kun je direct een reikipositie meenemen.
+                            Neem een stabiele, comfortabele zithouding aan. Volg de ademhalingsbegeleiding per chakra.
+                            Blijf na elke ronde zo lang als comfortabel is uitgeademd (retentie) en raak het scherm aan om naar de herstelademhaling en meditatie te gaan. Forceer de retentie niet.
+                            Na de herstelademhaling en meditatie, ga je automatisch door naar de volgende chakra. Doet kalm an!
                         </p>
                     </div>
                 ) : null}
