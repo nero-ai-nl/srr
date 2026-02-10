@@ -73,56 +73,63 @@ const CHAKRAS = [
         id: 1,
         name: 'Wortel (Muladhara)',
         color: 'bg-red-500',
-        audio: '/audio/Breathing 1.m4a',
-        meditation: '/audio/Meditation 1.m4a',
+        focusAudio: '/audio/focus-chakra-1.mp3',
+        breathingAudio: '/audio/Breathing-chakra-1.mp3',
+        meditationAudio: '/audio/meditation-chakra-1.mp3',
         background: '/images/chakras/chakra-1.png',
     },
     {
         id: 2,
         name: 'Sacraal (Svadhisthana)',
         color: 'bg-orange-500',
-        audio: '/audio/Breathing 2.m4a',
-        meditation: '/audio/Meditation 2.m4a',
+        focusAudio: '/audio/focus-chakra-2.mp3',
+        breathingAudio: '/audio/breathing-chakra-2.mp3',
+        meditationAudio: '/audio/meditation-chakra-2.mp3',
         background: '/images/chakras/chakra-2.png',
     },
     {
         id: 3,
         name: 'Zonnevlecht (Manipura)',
         color: 'bg-yellow-500',
-        audio: '/audio/Breathing 3.m4a',
-        meditation: '/audio/Meditation 3.m4a',
+        focusAudio: '/audio/focus-chakra-3.mp3',
+        breathingAudio: '/audio/breathing-chakra-3.mp3',
+        meditationAudio: '/audio/meditation-chakra-3.mp3',
         background: '/images/chakras/chakra-3.png',
     },
     {
         id: 4,
         name: 'Hart (Anahata)',
         color: 'bg-green-500',
-        audio: '/audio/Breathing 4.m4a',
-        meditation: '/audio/Meditation 4.m4a',
+        focusAudio: '/audio/focus-chakra-4.mp3',
+        breathingAudio: '/audio/breathing-chakra-4.mp3',
+        meditationAudio: '/audio/meditiaton-chakra-4.mp3',
         background: '/images/chakras/chakra-4.png',
     },
     {
         id: 5,
         name: 'Keel (Vishuddha)',
         color: 'bg-blue-500',
-        audio: '/audio/Breathing 5.m4a',
-        meditation: '/audio/Meditation 5.m4a',
+        focusAudio: '/audio/focus-chakra-5.mp3',
+        breathingAudio: '/audio/breathing-chakra-5.mp3',
+        meditationAudio: '/audio/meditation-chakra-5.mp3',
         background: '/images/chakras/chakra-5.png',
     },
     {
         id: 6,
         name: 'Derde Oog (Ajna)',
         color: 'bg-indigo-500',
-        audio: '/audio/Breathing 6.m4a',
-        meditation: '/audio/Meditation 6.m4a',
+        focusAudio: '/audio/focus-chakra-6.mp3',
+        breathingAudio: '/audio/breathing-chakra-6.mp3',
+        meditationAudio: '/audio/meditation-chakra-6.mp3',
         background: '/images/chakras/chakra-6.png',
     },
     {
         id: 7,
         name: 'Kroon (Sahasrara)',
         color: 'bg-purple-500',
-        audio: '/audio/Breathing 7.m4a',
-        meditation: '/audio/Meditation 7.m4a',
+        focusAudio: '/audio/focus-chakra-7.mp3',
+        breathingAudio: '/audio/breathing-chakra-7.mp3',
+        meditationAudio: '/audio/meditation-chakra-7.mp3',
         background: '/images/chakras/chakra-7.png',
     },
 ];
@@ -217,7 +224,9 @@ export default function App() {
     const [saveError, setSaveError] = useState<string | null>(null);
 
     const [isInstructionPlaying, setIsInstructionPlaying] = useState(false);
+    const [isInstructionInfoVisible, setIsInstructionInfoVisible] = useState(false);
     const [instructionError, setInstructionError] = useState<string | null>(null);
+    const [instructionAudioAvailable, setInstructionAudioAvailable] = useState<boolean | null>(null);
     const [chakraBackgroundAvailability, setChakraBackgroundAvailability] = useState<Record<string, boolean>>({});
     const [wakeLockSupported, setWakeLockSupported] = useState<boolean | null>(null);
     const [wakeLockError, setWakeLockError] = useState<string | null>(null);
@@ -238,6 +247,7 @@ export default function App() {
             instructionAudioRef.current = null;
         }
         setIsInstructionPlaying(false);
+        setIsInstructionInfoVisible(false);
     }, []);
 
     const stopRetentionFocusAudio = useCallback(() => {
@@ -293,7 +303,8 @@ export default function App() {
         }
 
         setInstructionError(null);
-        const audio = new Audio('/audio/instructions.m4a');
+        setIsInstructionInfoVisible(true);
+        const audio = new Audio('/audio/Instructions.mp3');
         instructionAudioRef.current = audio;
         setIsInstructionPlaying(true);
 
@@ -304,7 +315,7 @@ export default function App() {
 
         audio.onerror = () => {
             setIsInstructionPlaying(false);
-            setInstructionError('Kon instructions.m4a niet afspelen.');
+            setInstructionError('Kon Instructions.mp3 niet afspelen.');
             instructionAudioRef.current = null;
         };
 
@@ -314,6 +325,24 @@ export default function App() {
             instructionAudioRef.current = null;
         });
     }, [isInstructionPlaying, stopInstructionAudio]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        fetch('/audio/Instructions.mp3', { method: 'HEAD' })
+            .then((response) => {
+                if (cancelled) return;
+                setInstructionAudioAvailable(response.ok);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setInstructionAudioAvailable(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const fetchUserStats = useCallback(async (userId: string) => {
         setIsStatsLoading(true);
@@ -497,29 +526,52 @@ export default function App() {
 
     useEffect(() => {
         let active = true;
-        let audioPath = '';
+        let currentAudio: HTMLAudioElement | null = null;
+        let sequence: string[] = [];
 
-        if (phase === 'BREATHING') audioPath = CHAKRAS[currentChakraIdx].audio;
-        else if (phase === 'MEDITATION') audioPath = CHAKRAS[currentChakraIdx].meditation;
+        if (phase === 'BREATHING') {
+            sequence = [CHAKRAS[currentChakraIdx].focusAudio, CHAKRAS[currentChakraIdx].breathingAudio];
+        } else if (phase === 'MEDITATION') {
+            sequence = [CHAKRAS[currentChakraIdx].focusAudio, CHAKRAS[currentChakraIdx].meditationAudio];
+        }
 
-        if (audioPath && active) {
-            const audio = new Audio(audioPath);
-            audioRef.current = audio;
+        const playSequenceAt = (index: number) => {
+            if (!active) return;
 
-            audio.onended = () => {
-                if (active) handleNext();
+            if (index >= sequence.length) {
+                handleNext();
+                return;
+            }
+
+            currentAudio = new Audio(sequence[index]);
+            audioRef.current = currentAudio;
+
+            currentAudio.onended = () => {
+                playSequenceAt(index + 1);
             };
 
-            audio.play().catch(() => {
+            currentAudio.onerror = () => {
+                playSequenceAt(index + 1);
+            };
+
+            currentAudio.play().catch(() => {
                 // no-op for autoplay restrictions
             });
+        };
+
+        if (sequence.length > 0) {
+            playSequenceAt(0);
         }
 
         return () => {
             active = false;
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.onended = null;
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.onended = null;
+                currentAudio.onerror = null;
+            }
+            if (audioRef.current === currentAudio) {
+                audioRef.current = null;
             }
         };
     }, [phase, currentChakraIdx, handleNext]);
@@ -538,7 +590,7 @@ export default function App() {
             return;
         }
 
-        const focusAudio = new Audio('/audio/retention-focus.m4a');
+        const focusAudio = new Audio('/audio/retention-focus.mp3');
         focusAudio.loop = true;
         focusAudio.volume = 0.35;
         retentionFocusAudioRef.current = focusAudio;
@@ -635,7 +687,7 @@ export default function App() {
                         className="w-full px-6 py-3 bg-slate-800 border border-white/20 text-white rounded-full font-black uppercase tracking-widest text-xs hover:bg-slate-700 transition-colors active:scale-95 flex items-center justify-center gap-2"
                     >
                         {isInstructionPlaying ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
-                        {isInstructionPlaying ? 'Stop Instructies' : 'Beluister Instructies'}
+                        {isInstructionPlaying ? 'Stop Instructies' : 'Instructies'}
                     </button>
                     <button
                         onClick={() => {
@@ -648,8 +700,20 @@ export default function App() {
                     </button>
                 </div>
 
+                {isInstructionInfoVisible ? (
+                    <div className="mt-5 w-full max-w-sm rounded-2xl border border-white/15 bg-slate-800/60 p-4 text-left">
+                        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300 mb-2">Instructies</p>
+                        <p className="text-xs leading-relaxed text-slate-200">
+                            Neem een stabiele, comfortabele zithouding aan. Volg de ademhalingsbegeleiding per chakra en forceer de retentie niet.
+                            Luister bij elke overgang naar het focusfragment en ga daarna rustig door met de volgende fase.
+                        </p>
+                    </div>
+                ) : null}
+
                 {instructionError ? <p className="mt-4 text-xs text-red-400">{instructionError}</p> : null}
-                <p className="mt-4 text-[10px] text-slate-500 uppercase tracking-widest">Plaats `public/audio/instructions.m4a` om deze knop te activeren</p>
+                {instructionAudioAvailable === false ? (
+                    <p className="mt-4 text-[10px] text-slate-500 uppercase tracking-widest">Plaats `public/audio/Instructions.mp3` om deze knop te activeren</p>
+                ) : null}
             </div>
         );
     }
