@@ -612,7 +612,7 @@ export default function App() {
 
         const focusAudio = new Audio('/audio/retention-focus.mp3');
         focusAudio.loop = true;
-        focusAudio.volume = 0.35;
+        focusAudio.volume = 1;
         retentionFocusAudioRef.current = focusAudio;
         void focusAudio.play().catch(() => {
             // no-op for autoplay restrictions
