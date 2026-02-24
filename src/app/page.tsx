@@ -724,10 +724,13 @@ export default function App() {
                     <div className="mt-5 w-full max-w-sm rounded-2xl border border-white/15 bg-slate-800/60 p-4 text-left">
                         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300 mb-2">Instructies</p>
                         <p className="text-xs leading-relaxed text-slate-200">
-                            Deze app combineert de sadhna Ananda Mandala met de Wim Hof Methode (retentie). Per chakra kun je direct een reikipositie meenemen.
-                            Neem een stabiele, comfortabele zithouding aan. Volg de ademhalingsbegeleiding per chakra.
-                            Blijf na elke ronde zo lang als comfortabel is uitgeademd (retentie) en raak het scherm aan om naar de herstelademhaling en meditatie te gaan. Forceer de retentie niet.
-                            Na de herstelademhaling en meditatie, ga je automatisch door naar de volgende chakra. Doet kalm an!
+                            Deze app begeleidt een enorme kickstart van je dag door intensieve ademhalingsoefeningen (AM & WHM) te combineren met mindfullness. Doe de oefening bij voorkeur voor je eerste maaltijd en je bruist van energie:
+                            Neem een stabiele, comfortabele zithouding aan. Volg de ademhalingsbegeleiding per positie (chakra) zoals aangegeven op de afbeelding.
+                            Blijf na elke ronde zo lang als comfortabel is uitgeademd (retentie) en raak het scherm aan om naar de meditatie en herstelademhaling te gaan. Forceer de retentie niet!
+                            Tijdens de meditatie focus je je eerst (nog uitgeademd) op de betreffende positie, daarna adem je diep in (volgens instructie) en hou je je adem een aantal tellen in terwijl je de route van alle reeds behandelde posities vanaf je stuit richting de kroon van je hoofd voorstelt als een kolkende energie.
+                            Na de herstelademhaling en meditatie, ga je automatisch door naar de volgende chakra.
+                            Nadat alle posities behandeld zijn, is er tijd voor een korte meditatie waarna je klaar bent voor de dag!
+
                         </p>
                     </div>
                 ) : null}
