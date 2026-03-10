@@ -12,6 +12,7 @@ model User {
   username     String    @unique
   passwordHash String
   displayName  String?
+  defaultMaxRetentionSeconds Int?
   sessions     Session[]
 }
 

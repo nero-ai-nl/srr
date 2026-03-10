@@ -215,6 +215,11 @@ export default function App() {
     const [userStats, setUserStats] = useState<UserStats | null>(null);
     const [isStatsLoading, setIsStatsLoading] = useState(false);
     const [statsError, setStatsError] = useState<string | null>(null);
+    const [defaultMaxRetentionSeconds, setDefaultMaxRetentionSeconds] = useState<number | null>(null);
+    const [retentionSettingInput, setRetentionSettingInput] = useState('');
+    const [isSavingRetentionSetting, setIsSavingRetentionSetting] = useState(false);
+    const [retentionSettingError, setRetentionSettingError] = useState<string | null>(null);
+    const [retentionSettingSuccess, setRetentionSettingSuccess] = useState<string | null>(null);
 
     const [retentionTime, setRetentionTime] = useState(0);
     const [history, setHistory] = useState<RetentionHistoryItem[]>([]);
@@ -357,13 +362,25 @@ export default function App() {
 
         try {
             const response = await fetch(`/api/users/me/stats?userId=${encodeURIComponent(userId)}`);
-            const data = await response.json().catch(() => ({}));
+            const data = await response.json().catch(() => ({} as {
+                error?: string;
+                stats?: UserStats;
+                user?: {
+                    defaultMaxRetentionSeconds?: number | null;
+                };
+            }));
 
             if (!response.ok) {
                 throw new Error(data.error || 'Kon statistieken niet ophalen.');
             }
 
             setUserStats(data.stats as UserStats);
+            const savedMaxRetention =
+                typeof data.user?.defaultMaxRetentionSeconds === 'number'
+                    ? data.user.defaultMaxRetentionSeconds
+                    : null;
+            setDefaultMaxRetentionSeconds(savedMaxRetention);
+            setRetentionSettingInput(savedMaxRetention === null ? '' : String(savedMaxRetention));
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Kon statistieken niet ophalen.';
             setStatsError(message);
@@ -483,10 +500,75 @@ export default function App() {
         }
     };
 
+    const handleSaveRetentionSetting = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!currentUser || currentUser.type !== 'USER') return;
+
+        const trimmed = retentionSettingInput.trim();
+        let nextValue: number | null = null;
+
+        if (trimmed.length > 0) {
+            const parsed = Number(trimmed);
+            if (!Number.isInteger(parsed) || parsed < 5 || parsed > 600) {
+                setRetentionSettingError('Kies een geheel getal tussen 5 en 600 seconden, of laat leeg.');
+                setRetentionSettingSuccess(null);
+                return;
+            }
+            nextValue = parsed;
+        }
+
+        setIsSavingRetentionSetting(true);
+        setRetentionSettingError(null);
+        setRetentionSettingSuccess(null);
+
+        try {
+            const response = await fetch('/api/users/me/settings', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: currentUser.id,
+                    defaultMaxRetentionSeconds: nextValue,
+                }),
+            });
+
+            const data = await response.json().catch(() => ({} as {
+                error?: string;
+                settings?: {
+                    defaultMaxRetentionSeconds: number | null;
+                };
+            }));
+
+            if (!response.ok || !data.settings) {
+                throw new Error(data.error || 'Kon instellingen niet opslaan.');
+            }
+
+            const savedValue =
+                typeof data.settings.defaultMaxRetentionSeconds === 'number'
+                    ? data.settings.defaultMaxRetentionSeconds
+                    : null;
+            setDefaultMaxRetentionSeconds(savedValue);
+            setRetentionSettingInput(savedValue === null ? '' : String(savedValue));
+            setRetentionSettingSuccess(
+                savedValue === null
+                    ? 'Automatische retentie uitgeschakeld.'
+                    : `Maximale retentie ingesteld op ${savedValue} seconden.`,
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Kon instellingen niet opslaan.';
+            setRetentionSettingError(message);
+        } finally {
+            setIsSavingRetentionSetting(false);
+        }
+    };
+
     const startAsGuest = () => {
         setCurrentUser({ id: 'guest', username: 'Gast', type: 'GUEST' });
         setUserStats(null);
         setStatsError(null);
+        setDefaultMaxRetentionSeconds(null);
+        setRetentionSettingInput('');
+        setRetentionSettingError(null);
+        setRetentionSettingSuccess(null);
         setRetentionTime(0);
         setHistory([]);
         setSaveComplete(false);
@@ -525,6 +607,10 @@ export default function App() {
         setCurrentUser(null);
         setUserStats(null);
         setStatsError(null);
+        setDefaultMaxRetentionSeconds(null);
+        setRetentionSettingInput('');
+        setRetentionSettingError(null);
+        setRetentionSettingSuccess(null);
         setAuthError(null);
         setUsernameInput('');
         setPasswordInput('');
@@ -603,6 +689,15 @@ export default function App() {
         }
         return () => clearInterval(interval);
     }, [phase, isTimerRunning]);
+
+    useEffect(() => {
+        if (phase !== 'RETENTION' || !isTimerRunning) return;
+        if (currentUser?.type !== 'USER') return;
+        if (!defaultMaxRetentionSeconds) return;
+        if (retentionTime < defaultMaxRetentionSeconds) return;
+
+        handleNext();
+    }, [phase, isTimerRunning, currentUser, defaultMaxRetentionSeconds, retentionTime, handleNext]);
 
     useEffect(() => {
         if (phase !== 'RETENTION') {
@@ -854,6 +949,42 @@ export default function App() {
                         </div>
                     </div>
 
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-3">
+                        <p className="text-xs font-black uppercase tracking-widest">Instellingen</p>
+                        <p className="text-xs text-slate-400">
+                            Stel een standaard maximale retentie in. Als deze tijd bereikt is, gaat de app automatisch naar de volgende fase.
+                        </p>
+                        <form onSubmit={handleSaveRetentionSetting} className="flex flex-col sm:flex-row gap-3">
+                            <input
+                                type="number"
+                                inputMode="numeric"
+                                min={5}
+                                max={600}
+                                step={1}
+                                value={retentionSettingInput}
+                                onChange={(event) => {
+                                    setRetentionSettingInput(event.target.value);
+                                    setRetentionSettingError(null);
+                                    setRetentionSettingSuccess(null);
+                                }}
+                                placeholder="Leeg = handmatig"
+                                className="flex-1 bg-[#1e293b] border border-white/10 rounded-xl py-2.5 px-3 text-sm placeholder:text-slate-500 outline-none focus:border-cyan-500/50 transition-colors text-white"
+                            />
+                            <button
+                                type="submit"
+                                disabled={isSavingRetentionSetting}
+                                className="px-4 py-2.5 bg-cyan-500/20 border border-cyan-300/40 text-cyan-100 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-cyan-500/30 transition-colors disabled:opacity-50"
+                            >
+                                {isSavingRetentionSetting ? 'Opslaan...' : 'Opslaan'}
+                            </button>
+                        </form>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+                            Bereik: 5-600 seconden. Leeg laten betekent: handmatig tikken om retentie te stoppen.
+                        </p>
+                        {retentionSettingError ? <p className="text-xs text-red-400">{retentionSettingError}</p> : null}
+                        {retentionSettingSuccess ? <p className="text-xs text-green-400">{retentionSettingSuccess}</p> : null}
+                    </div>
+
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
                         <div className="flex items-center gap-2 mb-3">
                             <BarChart3 size={16} />
@@ -953,6 +1084,16 @@ export default function App() {
                     <div className="text-[110px] font-mono leading-none mb-10 tracking-tighter tabular-nums">
                         {Math.floor(retentionTime / 60)}:{(retentionTime % 60).toString().padStart(2, '0')}
                     </div>
+                    {currentUser?.type === 'USER' && defaultMaxRetentionSeconds ? (
+                        <div className="mb-6 space-y-1">
+                            <p className="text-[10px] text-cyan-300 tracking-[0.22em] uppercase font-black">
+                                Auto-volgende fase op {defaultMaxRetentionSeconds}s
+                            </p>
+                            <p className="text-xs text-slate-300">
+                                Nog {Math.max(defaultMaxRetentionSeconds - retentionTime, 0)}s
+                            </p>
+                        </div>
+                    ) : null}
                     <div className="flex flex-col items-center gap-2">
                         <div className="w-2 h-2 bg-white rounded-full animate-ping" />
                         <p className="text-slate-300 tracking-[0.3em] uppercase text-[10px] font-black mt-6">Tik om te voltooien</p>
