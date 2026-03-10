@@ -213,6 +213,18 @@ function getFriendlyApiError(payload: ApiErrorPayload, status: number, fallback:
         return 'Serverupdate bezig. Probeer het over 1 minuut opnieuw.';
     }
 
+    if (status === 409 && payload.error === 'Username already exists.') {
+        return 'Deze gebruikersnaam bestaat al.';
+    }
+
+    if (status === 400 && payload.error?.includes('username')) {
+        return 'Gebruikersnaam ongeldig. Gebruik 3-32 tekens: letters, cijfers, punt, underscore of streepje.';
+    }
+
+    if (status === 400 && payload.error?.includes('password')) {
+        return 'Wachtwoord moet minimaal 6 tekens hebben.';
+    }
+
     if (status === 401) {
         return 'Onjuiste gebruikersnaam of wachtwoord.';
     }
@@ -236,7 +248,11 @@ export default function App() {
     const [usernameInput, setUsernameInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [authError, setAuthError] = useState<string | null>(null);
+    const [registerError, setRegisterError] = useState<string | null>(null);
+    const [registerSuccess, setRegisterSuccess] = useState<string | null>(null);
     const [isLoggingIn, setIsLoggingIn] = useState(false);
+    const [isRegistering, setIsRegistering] = useState(false);
+    const [isRegisterMode, setIsRegisterMode] = useState(false);
 
     const [userStats, setUserStats] = useState<UserStats | null>(null);
     const [isStatsLoading, setIsStatsLoading] = useState(false);
@@ -270,6 +286,12 @@ export default function App() {
 
     const isSessionActivePhase = phase === 'BREATHING' || phase === 'RETENTION' || phase === 'MEDITATION';
     const shouldKeepScreenAwake = isSessionActivePhase || (phase === 'DISCLAIMER' && isInstructionPlaying);
+
+    const clearAuthFeedback = useCallback(() => {
+        setAuthError(null);
+        setRegisterError(null);
+        setRegisterSuccess(null);
+    }, []);
 
     const stopInstructionAudio = useCallback(() => {
         if (instructionAudioRef.current) {
@@ -486,7 +508,7 @@ export default function App() {
 
     const handleLogin = async (event: React.FormEvent) => {
         event.preventDefault();
-        setAuthError(null);
+        clearAuthFeedback();
         setIsLoggingIn(true);
 
         try {
@@ -527,6 +549,43 @@ export default function App() {
             setAuthError(message);
         } finally {
             setIsLoggingIn(false);
+        }
+    };
+
+    const handleRegister = async (event: React.FormEvent) => {
+        event.preventDefault();
+        clearAuthFeedback();
+        setIsRegistering(true);
+
+        try {
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: usernameInput,
+                    password: passwordInput,
+                }),
+            });
+
+            const data = await response.json().catch(() => ({} as {
+                error?: string;
+                code?: string;
+                detail?: string;
+                user?: { id: string; username: string };
+            }));
+
+            if (!response.ok || !data.user) {
+                throw new Error(getFriendlyApiError(data, response.status, 'Account aanmaken mislukt.'));
+            }
+
+            setRegisterSuccess('Account aangemaakt. Je kunt nu inloggen.');
+            setPasswordInput('');
+            setIsRegisterMode(false);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Account aanmaken mislukt.';
+            setRegisterError(message);
+        } finally {
+            setIsRegistering(false);
         }
     };
 
@@ -597,6 +656,9 @@ export default function App() {
         setCurrentUser({ id: 'guest', username: 'Gast', type: 'GUEST' });
         setUserStats(null);
         setStatsError(null);
+        setIsRegisterMode(false);
+        setRegisterError(null);
+        setRegisterSuccess(null);
         setDefaultMaxRetentionSeconds(null);
         setRetentionSettingInput('');
         setRetentionSettingError(null);
@@ -639,6 +701,9 @@ export default function App() {
         setCurrentUser(null);
         setUserStats(null);
         setStatsError(null);
+        setIsRegisterMode(false);
+        setRegisterError(null);
+        setRegisterSuccess(null);
         setDefaultMaxRetentionSeconds(null);
         setRetentionSettingInput('');
         setRetentionSettingError(null);
@@ -885,16 +950,34 @@ export default function App() {
                 </h1>
 
                 <div className="w-full max-w-[360px] bg-[#0f172a] rounded-3xl p-8 border border-white/5 shadow-2xl">
-                    <div className="flex items-center gap-2 mb-6 opacity-80">
-                        <User size={18} />
-                        <span className="font-bold text-xs uppercase tracking-widest text-slate-300">Inloggen</span>
+                    <div className="flex items-center justify-between gap-3 mb-6 opacity-80">
+                        <div className="flex items-center gap-2">
+                            <User size={18} />
+                            <span className="font-bold text-xs uppercase tracking-widest text-slate-300">
+                                {isRegisterMode ? 'Account aanmaken' : 'Inloggen'}
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsRegisterMode((prev) => !prev);
+                                clearAuthFeedback();
+                                setPasswordInput('');
+                            }}
+                            className="text-[10px] uppercase tracking-widest text-cyan-300 hover:text-cyan-200 transition-colors"
+                        >
+                            {isRegisterMode ? 'Terug' : 'Nieuw account'}
+                        </button>
                     </div>
 
-                    <form onSubmit={handleLogin} className="space-y-4 mb-6">
+                    <form onSubmit={isRegisterMode ? handleRegister : handleLogin} className="space-y-4 mb-4">
                         <input
                             type="text"
                             value={usernameInput}
-                            onChange={(event) => setUsernameInput(event.target.value)}
+                            onChange={(event) => {
+                                setUsernameInput(event.target.value);
+                                clearAuthFeedback();
+                            }}
                             placeholder="Gebruikersnaam"
                             className="w-full bg-[#1e293b] border border-white/10 rounded-xl py-3 px-4 text-sm placeholder:text-slate-500 outline-none focus:border-purple-500/50 transition-colors text-white"
                             required
@@ -902,28 +985,45 @@ export default function App() {
                         <input
                             type="password"
                             value={passwordInput}
-                            onChange={(event) => setPasswordInput(event.target.value)}
+                            onChange={(event) => {
+                                setPasswordInput(event.target.value);
+                                clearAuthFeedback();
+                            }}
                             placeholder="Wachtwoord"
                             className="w-full bg-[#1e293b] border border-white/10 rounded-xl py-3 px-4 text-sm placeholder:text-slate-500 outline-none focus:border-purple-500/50 transition-colors text-white"
                             required
                         />
                         <button
                             type="submit"
-                            disabled={isLoggingIn}
-                            className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest border border-purple-400/30 hover:bg-purple-500 transition-colors disabled:opacity-50"
+                            disabled={isLoggingIn || isRegistering}
+                            className={`w-full py-3 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-colors disabled:opacity-50 ${
+                                isRegisterMode
+                                    ? 'bg-cyan-600 border border-cyan-400/30 hover:bg-cyan-500'
+                                    : 'bg-purple-600 border border-purple-400/30 hover:bg-purple-500'
+                            }`}
                         >
                             <span className="inline-flex items-center gap-2 justify-center">
-                                <LogIn size={16} />
-                                {isLoggingIn ? 'Inloggen...' : 'Inloggen'}
+                                {isRegisterMode ? <UserPlus size={16} /> : <LogIn size={16} />}
+                                {isRegisterMode
+                                    ? (isRegistering ? 'Account aanmaken...' : 'Account aanmaken')
+                                    : (isLoggingIn ? 'Inloggen...' : 'Inloggen')}
                             </span>
                         </button>
                     </form>
 
-                    {authError ? <p className="text-xs text-red-400 mb-4">{authError}</p> : null}
+                    {authError && !isRegisterMode ? <p className="text-xs text-red-400 mb-4">{authError}</p> : null}
+                    {registerError && isRegisterMode ? <p className="text-xs text-red-400 mb-4">{registerError}</p> : null}
+                    {registerSuccess ? <p className="text-xs text-green-400 mb-4">{registerSuccess}</p> : null}
 
-                    <p className="text-[10px] text-slate-400 mb-5 uppercase tracking-wider">
-                        Testaccount: <span className="text-white">testuser</span> / <span className="text-white">sadhana123</span>
-                    </p>
+                    {isRegisterMode ? (
+                        <p className="text-[10px] text-slate-400 mb-5 uppercase tracking-wider">
+                            Kies een unieke gebruikersnaam. Wachtwoord minimaal 6 tekens.
+                        </p>
+                    ) : (
+                        <p className="text-[10px] text-slate-400 mb-5 uppercase tracking-wider">
+                            Testaccount: <span className="text-white">testuser</span> / <span className="text-white">sadhana123</span>
+                        </p>
+                    )}
 
                     <div className="flex items-center gap-4 my-6 opacity-20">
                         <div className="h-[1px] bg-white flex-1"></div>
