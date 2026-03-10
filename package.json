@@ -6,6 +6,7 @@
     "dev": "next dev",
     "prisma:generate": "prisma generate",
     "build": "npm run prisma:generate && next build --webpack",
+    "build:deploy": "prisma migrate deploy && npm run build",
     "start": "next start",
     "lint": "eslint"
   },

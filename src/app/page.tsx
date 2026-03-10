@@ -42,6 +42,12 @@ type UserStats = {
     }[];
 };
 
+type ApiErrorPayload = {
+    error?: string;
+    code?: string;
+    detail?: string;
+};
+
 type WakeLockSentinelLike = {
     released?: boolean;
     release: () => Promise<void>;
@@ -200,6 +206,26 @@ function getRetentionByChakra(records: { chakra: string; seconds: number }[], ch
     const normalizedName = chakraName.toLowerCase();
     const fallbackMatch = records.find((record) => record.chakra.toLowerCase().includes(normalizedName.split(' ')[0]));
     return fallbackMatch?.seconds ?? 0;
+}
+
+function getFriendlyApiError(payload: ApiErrorPayload, status: number, fallback: string): string {
+    if (payload.code === 'MIGRATION_REQUIRED') {
+        return 'Serverupdate bezig. Probeer het over 1 minuut opnieuw.';
+    }
+
+    if (status === 401) {
+        return 'Onjuiste gebruikersnaam of wachtwoord.';
+    }
+
+    if (status === 404 && payload.error === 'User not found.') {
+        return 'Gebruiker niet gevonden. Log opnieuw in.';
+    }
+
+    if (status >= 500 || payload.error === 'Database error') {
+        return 'Database tijdelijk niet bereikbaar. Probeer opnieuw.';
+    }
+
+    return payload.error || fallback;
 }
 
 export default function App() {
@@ -364,6 +390,8 @@ export default function App() {
             const response = await fetch(`/api/users/me/stats?userId=${encodeURIComponent(userId)}`);
             const data = await response.json().catch(() => ({} as {
                 error?: string;
+                code?: string;
+                detail?: string;
                 stats?: UserStats;
                 user?: {
                     defaultMaxRetentionSeconds?: number | null;
@@ -371,7 +399,7 @@ export default function App() {
             }));
 
             if (!response.ok) {
-                throw new Error(data.error || 'Kon statistieken niet ophalen.');
+                throw new Error(getFriendlyApiError(data, response.status, 'Kon statistieken niet ophalen.'));
             }
 
             setUserStats(data.stats as UserStats);
@@ -473,11 +501,13 @@ export default function App() {
 
             const data = await response.json().catch(() => ({} as {
                 error?: string;
+                code?: string;
+                detail?: string;
                 user?: { id: string; username: string; displayName?: string | null };
             }));
 
             if (!response.ok || !data.user) {
-                throw new Error(data.error || 'Inloggen mislukt.');
+                throw new Error(getFriendlyApiError(data, response.status, 'Inloggen mislukt.'));
             }
 
             const user: CurrentUser = {
@@ -533,13 +563,15 @@ export default function App() {
 
             const data = await response.json().catch(() => ({} as {
                 error?: string;
+                code?: string;
+                detail?: string;
                 settings?: {
                     defaultMaxRetentionSeconds: number | null;
                 };
             }));
 
             if (!response.ok || !data.settings) {
-                throw new Error(data.error || 'Kon instellingen niet opslaan.');
+                throw new Error(getFriendlyApiError(data, response.status, 'Kon instellingen niet opslaan.'));
             }
 
             const savedValue =
