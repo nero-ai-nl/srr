@@ -45,6 +45,17 @@ function parseSettingsInput(value: unknown): { data?: SettingsInput; error?: str
   };
 }
 
+function isMissingDefaultRetentionColumnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const code = 'code' in error ? error.code : undefined;
+  if (code !== 'P2022') return false;
+
+  const meta = 'meta' in error ? error.meta : undefined;
+  const column = meta && typeof meta === 'object' && 'column' in meta ? meta.column : undefined;
+  return typeof column === 'string' && column.includes('defaultMaxRetentionSeconds');
+}
+
 export async function PATCH(request: Request) {
   let rawBody: unknown;
 
@@ -92,6 +103,17 @@ export async function PATCH(request: Request) {
       { status: 200 },
     );
   } catch (error) {
+    if (isMissingDefaultRetentionColumnError(error)) {
+      return NextResponse.json(
+        {
+          error: 'Database schema is nog niet gemigreerd voor defaultMaxRetentionSeconds.',
+          code: 'MIGRATION_REQUIRED',
+          detail: 'Voer Prisma migraties uit (bijv. prisma migrate deploy) en probeer opnieuw.',
+        },
+        { status: 503 },
+      );
+    }
+
     console.error('User settings API Error:', error);
     return NextResponse.json({ error: 'Database error' }, { status: 500 });
   }

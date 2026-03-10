@@ -51,6 +51,12 @@ export async function POST(request: Request) {
     const prisma = getPrismaClient();
     const user = await prisma.user.findUnique({
       where: { username: parsed.data.username },
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        passwordHash: true,
+      },
     });
 
     if (!user) {

@@ -3,6 +3,17 @@ import { getPrismaClient } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
+function isMissingDefaultRetentionColumnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const code = 'code' in error ? error.code : undefined;
+  if (code !== 'P2022') return false;
+
+  const meta = 'meta' in error ? error.meta : undefined;
+  const column = meta && typeof meta === 'object' && 'column' in meta ? meta.column : undefined;
+  return typeof column === 'string' && column.includes('defaultMaxRetentionSeconds');
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get('userId');
@@ -13,11 +24,34 @@ export async function GET(request: Request) {
 
   try {
     const prisma = getPrismaClient();
+    let user:
+      | {
+          id: string;
+          username: string;
+          displayName: string | null;
+          defaultMaxRetentionSeconds: number | null;
+        }
+      | null = null;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, username: true, displayName: true, defaultMaxRetentionSeconds: true },
-    });
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, username: true, displayName: true, defaultMaxRetentionSeconds: true },
+      });
+    } catch (error) {
+      if (!isMissingDefaultRetentionColumnError(error)) {
+        throw error;
+      }
+
+      const fallbackUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, username: true, displayName: true },
+      });
+
+      user = fallbackUser
+        ? { ...fallbackUser, defaultMaxRetentionSeconds: null }
+        : null;
+    }
 
     if (!user) {
       return NextResponse.json({ error: 'User not found.' }, { status: 404 });
