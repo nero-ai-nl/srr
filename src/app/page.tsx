@@ -281,6 +281,7 @@ export default function App() {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const instructionAudioRef = useRef<HTMLAudioElement | null>(null);
     const retentionFocusAudioRef = useRef<HTMLAudioElement | null>(null);
+    const sessionAudioMapRef = useRef<Map<string, HTMLAudioElement>>(new Map());
     const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
     const isTransitioningRef = useRef(false);
 
@@ -652,7 +653,37 @@ export default function App() {
         }
     };
 
+    const initSessionAudio = () => {
+        const map = sessionAudioMapRef.current;
+
+        // Geef vorige sessie-elementen vrij
+        map.forEach((audio) => {
+            audio.pause();
+            audio.src = '';
+        });
+        map.clear();
+
+        // iOS/WebKit-unlock: één play() op een stille data-URL binnen de user-gesture context
+        // activeert audio voor de gehele pagina — zonder race condition met de echte afspeellogica.
+        // (play().then(pause) op alle elementen veroorzaakte een race: de .then() kon de echte
+        // afspeelstart van het eerste chakra te laat onderbreken.)
+        const silentUnlock = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAAAA==');
+        void silentUnlock.play().catch(() => {});
+
+        // Pre-aanmaken en laden van alle sessie-audio elementen (nu al iOS-unlocked via hierboven)
+        const urls: string[] = CHAKRAS.flatMap((c) => [c.focusAudio, c.breathingAudio, c.meditationAudio]);
+        urls.push('/audio/retention-focus.mp3');
+
+        urls.forEach((url) => {
+            const audio = new Audio(url);
+            audio.preload = 'auto';
+            audio.load();
+            map.set(url, audio);
+        });
+    };
+
     const startAsGuest = () => {
+        initSessionAudio();
         setCurrentUser({ id: 'guest', username: 'Gast', type: 'GUEST' });
         setUserStats(null);
         setStatsError(null);
@@ -671,6 +702,7 @@ export default function App() {
     };
 
     const startLoggedInSession = () => {
+        initSessionAudio();
         setRetentionTime(0);
         setHistory([]);
         setSaveComplete(false);
@@ -680,6 +712,13 @@ export default function App() {
     };
 
     const handleSummaryContinue = async () => {
+        // Geef geheugen vrij van de sessie-audio elementen
+        sessionAudioMapRef.current.forEach((audio) => {
+            audio.pause();
+            audio.src = '';
+        });
+        sessionAudioMapRef.current.clear();
+
         setIsSaving(false);
         setSaveComplete(false);
         setSaveError(null);
@@ -725,12 +764,19 @@ export default function App() {
             sequence = [CHAKRAS[currentChakraIdx].focusAudio, CHAKRAS[currentChakraIdx].meditationAudio];
         }
 
-        const preloadedPlayers = sequence.map((source) => {
-            const player = new Audio(source);
-            player.preload = 'auto';
-            player.load();
-            return player;
-        });
+        // Haal pre-unlocked elementen op uit de Map (aangemaakt in initSessionAudio tijdens user gesture).
+        // Fallback naar new Audio() als de Map leeg is (bijv. directe page-refresh zonder sessiestarten).
+        const getAudio = (url: string): HTMLAudioElement => {
+            const cached = sessionAudioMapRef.current.get(url);
+            if (cached) {
+                cached.currentTime = 0;
+                return cached;
+            }
+            const fallback = new Audio(url);
+            fallback.preload = 'auto';
+            fallback.load();
+            return fallback;
+        };
 
         const playSequenceAt = (index: number) => {
             if (!active) return;
@@ -740,7 +786,7 @@ export default function App() {
                 return;
             }
 
-            currentAudio = preloadedPlayers[index] ?? new Audio(sequence[index]);
+            currentAudio = getAudio(sequence[index]);
             audioRef.current = currentAudio;
 
             currentAudio.onended = () => {
@@ -752,7 +798,8 @@ export default function App() {
             };
 
             currentAudio.play().catch(() => {
-                // no-op for autoplay restrictions
+                // Elementen zijn iOS-unlocked via initSessionAudio().
+                // Dit pad is alleen bereikbaar bij ontbrekende audiobestanden.
             });
         };
 
@@ -766,13 +813,8 @@ export default function App() {
                 currentAudio.pause();
                 currentAudio.onended = null;
                 currentAudio.onerror = null;
+                // Map-entries blijven bewaard voor hergebruik; currentTime wordt bij ophalen gereset.
             }
-            preloadedPlayers.forEach((player) => {
-                if (player === currentAudio) return;
-                player.pause();
-                player.onended = null;
-                player.onerror = null;
-            });
             if (audioRef.current === currentAudio) {
                 audioRef.current = null;
             }
@@ -802,20 +844,31 @@ export default function App() {
             return;
         }
 
-        const focusAudio = new Audio('/audio/retention-focus.mp3');
+        const RETENTION_URL = '/audio/retention-focus.mp3';
+        const cached = sessionAudioMapRef.current.get(RETENTION_URL);
+        const focusAudio = cached ?? new Audio(RETENTION_URL);
+
+        if (cached) {
+            focusAudio.currentTime = 0;
+        } else {
+            focusAudio.preload = 'auto';
+            focusAudio.load();
+        }
+
         focusAudio.loop = true;
         focusAudio.volume = 1;
         retentionFocusAudioRef.current = focusAudio;
+
         void focusAudio.play().catch(() => {
-            // no-op for autoplay restrictions
+            // Elementen zijn iOS-unlocked via initSessionAudio().
         });
 
         return () => {
+            focusAudio.pause();
+            focusAudio.currentTime = 0;
+            focusAudio.loop = false;
             if (retentionFocusAudioRef.current === focusAudio) {
-                stopRetentionFocusAudio();
-            } else {
-                focusAudio.pause();
-                focusAudio.currentTime = 0;
+                retentionFocusAudioRef.current = null;
             }
         };
     }, [phase, stopRetentionFocusAudio]);
