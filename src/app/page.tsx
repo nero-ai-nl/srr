@@ -15,9 +15,10 @@ import {
     User,
     UserPlus,
     Volume2,
+    X,
 } from 'lucide-react';
 
-type Phase = 'DISCLAIMER' | 'AUTH' | 'DASHBOARD' | 'BREATHING' | 'RETENTION' | 'MEDITATION' | 'SUMMARY';
+type Phase = 'DISCLAIMER' | 'AUTH' | 'DASHBOARD' | 'CHAKRA_SELECT' | 'BREATHING' | 'RETENTION' | 'MEDITATION' | 'SUMMARY';
 type UserType = 'GUEST' | 'USER';
 type RetentionHistoryItem = { chakra: string; time: number };
 type CurrentUser = {
@@ -65,13 +66,16 @@ interface AppState {
     currentChakraIdx: number;
     sessionStartTime: number | null;
     totalDuration: number;
+    totalChakras: number;
 }
 
 type Action =
     | { type: 'GO_AUTH' }
     | { type: 'GO_DASHBOARD' }
-    | { type: 'START_SESSION' }
+    | { type: 'GO_CHAKRA_SELECT' }
+    | { type: 'START_SESSION'; totalChakras: number }
     | { type: 'NEXT_PHASE' }
+    | { type: 'END_SESSION'; duration: number }
     | { type: 'RESET_ALL' };
 
 const CHAKRAS = [
@@ -145,6 +149,7 @@ const initialState: AppState = {
     currentChakraIdx: 0,
     sessionStartTime: null,
     totalDuration: 0,
+    totalChakras: CHAKRAS.length,
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -159,6 +164,8 @@ function appReducer(state: AppState, action: Action): AppState {
                 sessionStartTime: null,
                 totalDuration: 0,
             };
+        case 'GO_CHAKRA_SELECT':
+            return { ...state, phase: 'CHAKRA_SELECT' };
         case 'START_SESSION':
             return {
                 ...state,
@@ -166,18 +173,22 @@ function appReducer(state: AppState, action: Action): AppState {
                 currentChakraIdx: 0,
                 sessionStartTime: Date.now(),
                 totalDuration: 0,
+                totalChakras: action.totalChakras,
             };
         case 'NEXT_PHASE': {
             if (state.phase === 'BREATHING') return { ...state, phase: 'RETENTION' };
             if (state.phase === 'RETENTION') return { ...state, phase: 'MEDITATION' };
             if (state.phase === 'MEDITATION') {
-                if (state.currentChakraIdx < CHAKRAS.length - 1) {
+                if (state.currentChakraIdx < state.totalChakras - 1) {
                     return { ...state, phase: 'BREATHING', currentChakraIdx: state.currentChakraIdx + 1 };
                 }
                 const duration = state.sessionStartTime ? Math.floor((Date.now() - state.sessionStartTime) / 1000) : 0;
                 return { ...state, phase: 'SUMMARY', totalDuration: duration };
             }
             return state;
+        }
+        case 'END_SESSION': {
+            return { ...state, phase: 'SUMMARY', totalDuration: action.duration };
         }
         case 'RESET_ALL':
             return initialState;
@@ -242,7 +253,7 @@ function getFriendlyApiError(payload: ApiErrorPayload, status: number, fallback:
 
 export default function App() {
     const [state, dispatch] = useReducer(appReducer, initialState);
-    const { phase, currentChakraIdx, totalDuration } = state;
+    const { phase, currentChakraIdx, totalDuration, totalChakras } = state;
 
     const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
     const [usernameInput, setUsernameInput] = useState('');
@@ -277,6 +288,10 @@ export default function App() {
     const [chakraBackgroundAvailability, setChakraBackgroundAvailability] = useState<Record<string, boolean>>({});
     const [wakeLockSupported, setWakeLockSupported] = useState<boolean | null>(null);
     const [wakeLockError, setWakeLockError] = useState<string | null>(null);
+
+    const [selectedChakraIds, setSelectedChakraIds] = useState<Set<number>>(() => new Set(CHAKRAS.map((c) => c.id)));
+    const [activeChakras, setActiveChakras] = useState(CHAKRAS);
+    const [isEarlyEnd, setIsEarlyEnd] = useState(false);
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const instructionAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -495,7 +510,7 @@ export default function App() {
             setIsTimerRunning(false);
             setHistory((prev) => {
                 if (prev.length > currentChakraIdx) return prev;
-                return [...prev, { chakra: CHAKRAS[currentChakraIdx].name, time: retentionTime }];
+                return [...prev, { chakra: activeChakras[currentChakraIdx].name, time: retentionTime }];
             });
         }
         if (phase === 'MEDITATION') setRetentionTime(0);
@@ -505,7 +520,7 @@ export default function App() {
         setTimeout(() => {
             isTransitioningRef.current = false;
         }, 400);
-    }, [phase, currentChakraIdx, retentionTime]);
+    }, [phase, currentChakraIdx, retentionTime, activeChakras]);
 
     const handleLogin = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -653,7 +668,7 @@ export default function App() {
         }
     };
 
-    const initSessionAudio = () => {
+    const initSessionAudio = (chakrasToLoad: typeof CHAKRAS = CHAKRAS) => {
         const map = sessionAudioMapRef.current;
 
         // Geef vorige sessie-elementen vrij
@@ -665,13 +680,11 @@ export default function App() {
 
         // iOS/WebKit-unlock: één play() op een stille data-URL binnen de user-gesture context
         // activeert audio voor de gehele pagina — zonder race condition met de echte afspeellogica.
-        // (play().then(pause) op alle elementen veroorzaakte een race: de .then() kon de echte
-        // afspeelstart van het eerste chakra te laat onderbreken.)
         const silentUnlock = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAAAA==');
         void silentUnlock.play().catch(() => {});
 
         // Pre-aanmaken en laden van alle sessie-audio elementen (nu al iOS-unlocked via hierboven)
-        const urls: string[] = CHAKRAS.flatMap((c) => [c.focusAudio, c.breathingAudio, c.meditationAudio]);
+        const urls: string[] = chakrasToLoad.flatMap((c) => [c.focusAudio, c.breathingAudio, c.meditationAudio]);
         urls.push('/audio/retention-focus.mp3');
 
         urls.forEach((url) => {
@@ -683,7 +696,6 @@ export default function App() {
     };
 
     const startAsGuest = () => {
-        initSessionAudio();
         setCurrentUser({ id: 'guest', username: 'Gast', type: 'GUEST' });
         setUserStats(null);
         setStatsError(null);
@@ -698,18 +710,41 @@ export default function App() {
         setHistory([]);
         setSaveComplete(false);
         setSaveError(null);
-        dispatch({ type: 'START_SESSION' });
+        setIsEarlyEnd(false);
+        setSelectedChakraIds(new Set(CHAKRAS.map((c) => c.id)));
+        dispatch({ type: 'GO_CHAKRA_SELECT' });
     };
 
     const startLoggedInSession = () => {
-        initSessionAudio();
         setRetentionTime(0);
         setHistory([]);
         setSaveComplete(false);
         setSaveError(null);
         setIsSaving(false);
-        dispatch({ type: 'START_SESSION' });
+        setIsEarlyEnd(false);
+        setSelectedChakraIds(new Set(CHAKRAS.map((c) => c.id)));
+        dispatch({ type: 'GO_CHAKRA_SELECT' });
     };
+
+    const handleStartSessionFromChakraSelect = () => {
+        const filtered = CHAKRAS.filter((c) => selectedChakraIds.has(c.id));
+        if (filtered.length === 0) return;
+        setActiveChakras(filtered);
+        initSessionAudio(filtered);
+        dispatch({ type: 'START_SESSION', totalChakras: filtered.length });
+    };
+
+    const handleEndSessionEarly = useCallback(() => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.onended = null;
+        }
+        const duration = state.sessionStartTime
+            ? Math.floor((Date.now() - state.sessionStartTime) / 1000)
+            : 0;
+        setIsEarlyEnd(true);
+        dispatch({ type: 'END_SESSION', duration });
+    }, [state.sessionStartTime]);
 
     const handleSummaryContinue = async () => {
         // Geef geheugen vrij van de sessie-audio elementen
@@ -724,6 +759,9 @@ export default function App() {
         setSaveError(null);
         setHistory([]);
         setRetentionTime(0);
+        setIsEarlyEnd(false);
+        setActiveChakras(CHAKRAS);
+        setSelectedChakraIds(new Set(CHAKRAS.map((c) => c.id)));
 
         if (currentUser?.type === 'USER' && currentUser.id) {
             await fetchUserStats(currentUser.id);
@@ -759,9 +797,9 @@ export default function App() {
         let sequence: string[] = [];
 
         if (phase === 'BREATHING') {
-            sequence = [CHAKRAS[currentChakraIdx].focusAudio, CHAKRAS[currentChakraIdx].breathingAudio];
+            sequence = [activeChakras[currentChakraIdx].focusAudio, activeChakras[currentChakraIdx].breathingAudio];
         } else if (phase === 'MEDITATION') {
-            sequence = [CHAKRAS[currentChakraIdx].focusAudio, CHAKRAS[currentChakraIdx].meditationAudio];
+            sequence = [activeChakras[currentChakraIdx].focusAudio, activeChakras[currentChakraIdx].meditationAudio];
         }
 
         // Haal pre-unlocked elementen op uit de Map (aangemaakt in initSessionAudio tijdens user gesture).
@@ -819,7 +857,7 @@ export default function App() {
                 audioRef.current = null;
             }
         };
-    }, [phase, currentChakraIdx, handleNext]);
+    }, [phase, currentChakraIdx, activeChakras, handleNext]);
 
     useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -875,10 +913,10 @@ export default function App() {
 
     useEffect(() => {
         if (phase !== 'SUMMARY') return;
-        if (history.length !== CHAKRAS.length) return;
+        if (!isEarlyEnd && history.length !== activeChakras.length) return;
         if (isSaving || saveComplete || saveError) return;
         void handleSaveSession(history, totalDuration);
-    }, [phase, history, totalDuration, isSaving, saveComplete, saveError, handleSaveSession]);
+    }, [phase, history, totalDuration, isEarlyEnd, activeChakras.length, isSaving, saveComplete, saveError, handleSaveSession]);
 
     useEffect(() => {
         if (shouldKeepScreenAwake) {
@@ -1249,8 +1287,89 @@ export default function App() {
         );
     }
 
+    if (phase === 'CHAKRA_SELECT') {
+        const allSelected = CHAKRAS.every((c) => selectedChakraIds.has(c.id));
+        const activeCount = selectedChakraIds.size;
+
+        return (
+            <div className="flex flex-col items-center justify-start min-h-screen p-6 bg-slate-950 text-white font-sans">
+                <div className="w-full max-w-md">
+                    <div className="mb-8 mt-4">
+                        <h1 className="text-3xl font-black tracking-tighter mb-1">Selecteer Chakra&apos;s</h1>
+                        <p className="text-xs text-slate-400 uppercase tracking-widest">Kies welke chakra&apos;s je wil meenemen</p>
+                    </div>
+
+                    <div className="space-y-2 mb-4">
+                        {CHAKRAS.map((chakra) => {
+                            const isSelected = selectedChakraIds.has(chakra.id);
+                            return (
+                                <button
+                                    key={chakra.id}
+                                    onClick={() => {
+                                        setSelectedChakraIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(chakra.id)) {
+                                                next.delete(chakra.id);
+                                            } else {
+                                                next.add(chakra.id);
+                                            }
+                                            return next;
+                                        });
+                                    }}
+                                    className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all active:scale-[0.98] ${
+                                        isSelected
+                                            ? 'bg-white/10 border-white/20'
+                                            : 'bg-white/[0.02] border-white/5 opacity-35'
+                                    }`}
+                                >
+                                    <div className={`w-8 h-8 rounded-full flex-shrink-0 ${chakra.color} flex items-center justify-center`}>
+                                        <span className="text-xs font-black text-white">{chakra.id}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-left flex-1">{chakra.name}</span>
+                                    <div className={`w-6 h-6 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                                        isSelected ? 'bg-white border-white' : 'border-white/20'
+                                    }`}>
+                                        {isSelected && <CheckCircle2 size={14} className="text-black" />}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <button
+                        onClick={() => {
+                            if (allSelected) {
+                                setSelectedChakraIds(new Set());
+                            } else {
+                                setSelectedChakraIds(new Set(CHAKRAS.map((c) => c.id)));
+                            }
+                        }}
+                        className="w-full py-2 text-xs text-slate-500 uppercase tracking-widest mb-5 hover:text-slate-300 transition-colors"
+                    >
+                        {allSelected ? 'Deselecteer alles' : 'Selecteer alles'}
+                    </button>
+
+                    <button
+                        onClick={handleStartSessionFromChakraSelect}
+                        disabled={activeCount === 0}
+                        className="w-full py-4 bg-white text-black rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-3"
+                    >
+                        Start Sessie ({activeCount} chakra{activeCount !== 1 ? "'s" : ''})
+                    </button>
+
+                    <button
+                        onClick={() => dispatch({ type: currentUser?.type === 'USER' ? 'GO_DASHBOARD' : 'GO_AUTH' })}
+                        className="w-full py-3 text-xs text-slate-500 uppercase tracking-widest hover:text-slate-300 transition-colors"
+                    >
+                        Terug
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     if (phase === 'RETENTION') {
-        const chakra = CHAKRAS[currentChakraIdx];
+        const chakra = activeChakras[currentChakraIdx];
         return (
             <div
                 onClick={handleNext}
@@ -1298,7 +1417,7 @@ export default function App() {
         );
     }
 
-    const chakra = CHAKRAS[currentChakraIdx];
+    const chakra = activeChakras[currentChakraIdx];
     const isChakraBackgroundMissing = chakraBackgroundAvailability[chakra.background] === false;
 
     return (
@@ -1307,15 +1426,27 @@ export default function App() {
                 <div className="fixed top-0 left-0 w-full h-1 bg-white/5 z-50">
                     <div
                         className={`h-full ${chakra.color} transition-all duration-700 shadow-[0_0_15px_rgba(255,255,255,0.2)]`}
-                        style={{ width: `${((currentChakraIdx + 1) / CHAKRAS.length) * 100}%` }}
+                        style={{ width: `${((currentChakraIdx + 1) / totalChakras) * 100}%` }}
                     />
                 </div>
             ) : null}
 
+            {(phase === 'BREATHING' || phase === 'MEDITATION') && (
+                <button
+                    onClick={handleEndSessionEarly}
+                    className="fixed top-4 right-4 z-50 w-10 h-10 bg-black/30 border border-white/10 rounded-full flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-black/60 transition-all active:scale-95"
+                    title="Sessie beëindigen"
+                >
+                    <X size={18} />
+                </button>
+            )}
+
             <main className="text-center w-full max-w-md z-10">
                 {phase === 'SUMMARY' ? (
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                        <h2 className="text-5xl font-black italic tracking-tighter mb-2">Sessie Voltooid.</h2>
+                        <h2 className="text-5xl font-black italic tracking-tighter mb-2">
+                            {isEarlyEnd ? 'Sessie Gestopt.' : 'Sessie Voltooid.'}
+                        </h2>
 
                         <div className="flex items-center justify-center gap-2 text-slate-400 mb-6">
                             <Clock size={16} />
@@ -1330,7 +1461,7 @@ export default function App() {
                                     <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{h.chakra}</span>
                                     <div className="flex items-center gap-3">
                                         <span className="font-mono font-bold text-lg text-white">{h.time}s</span>
-                                        <div className={`w-1 h-4 rounded-full ${CHAKRAS[i].color} opacity-40 group-hover:opacity-100 transition-opacity`} />
+                                        <div className={`w-1 h-4 rounded-full ${activeChakras[i]?.color ?? 'bg-white'} opacity-40 group-hover:opacity-100 transition-opacity`} />
                                     </div>
                                 </div>
                             ))}
@@ -1406,7 +1537,7 @@ export default function App() {
                             <span>
                                 {phase === 'BREATHING'
                                     ? 'Naar Retentie'
-                                    : currentChakraIdx < CHAKRAS.length - 1
+                                    : currentChakraIdx < totalChakras - 1
                                         ? 'Volgende Chakra'
                                         : 'Sessie Voltooien'}
                             </span>
